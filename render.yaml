@@ -2,7 +2,7 @@
 # Deploy automático de todos os serviços
 
 services:
-  # Redis (Render Redis)
+  # Redis
   - type: redis
     name: mitabot-redis
     plan: free
@@ -24,6 +24,7 @@ services:
           property: connectionString
       - key: REDIS_URL
         fromService:
+          type: redis
           name: mitabot-redis
           property: connectionString
       - key: JWT_SECRET
@@ -31,7 +32,7 @@ services:
       - key: ML_SERVICE_URL
         value: http://mitabot-ml-service
 
-  # ML Service Python
+  # ML Service (Python)
   - type: web
     name: mitabot-ml-service
     runtime: python
@@ -45,12 +46,13 @@ services:
           property: connectionString
       - key: REDIS_URL
         fromService:
+          type: redis
           name: mitabot-redis
           property: connectionString
       - key: MODEL_PATH
         value: /tmp/models
 
-  # Workers Node.js
+  # Workers
   - type: worker
     name: mitabot-workers
     runtime: node
@@ -60,6 +62,7 @@ services:
     envVars:
       - key: REDIS_URL
         fromService:
+          type: redis
           name: mitabot-redis
           property: connectionString
       - key: FRONTEND_URL
