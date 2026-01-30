@@ -1,0 +1,375 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Usuários do sistema
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String   // hash bcrypt
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relacionamentos
+  timesSalvos     TimeSalvo[]
+  preferencias    UserPreferencias?
+  historicoAcesso HistoricoAcesso[]
+
+  @@map("users")
+}
+
+// Preferências do usuário para recomendações
+model UserPreferencias {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  esquemaPadrao         String   @default("4-3-3") // 4-3-3, 4-4-2, 3-4-3, etc.
+  orcamentoPadrao       Float    @default(100)
+  priorizarConsistencia Boolean  @default(false)
+  priorizarPotencial    Boolean  @default(true)
+  evitarClubes          String[] // IDs dos clubes a evitar
+  favoritarClubes       String[] // IDs dos clubes favoritos
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferencias")
+}
+
+// Clubes do Brasileirão
+model Clube {
+  id           String   @id @default(uuid())
+  cartolaId    Int?     @unique // ID do Cartola FC
+  nome         String
+  abreviacao   String
+  escudoUrl    String?
+  cores        String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Elo rating para força do time
+  eloOfensivo  Float    @default(1500)
+  eloDefensivo Float    @default(1500)
+  eloGeral     Float    @default(1500)
+
+  // Relacionamentos
+  jogadores    Jogador[]
+  jogosMandante Jogo[] @relation("Mandante")
+  jogosVisitante Jogo[] @relation("Visitante")
+
+  @@map("clubes")
+}
+
+// Jogadores
+model Jogador {
+  id              String   @id @default(uuid())
+  cartolaId       Int?     @unique
+  nome            String
+  apelido         String
+  posicao         Posicao  // GOLEIRO, ZAGUEIRO, LATERAL, MEIA, ATACANTE, TECNICO
+  clubeId         String
+  preco           Float
+  precoVariacao   Float    @default(0)
+  mediaPontos     Float    @default(0)
+  jogos           Int      @default(0)
+  status          Status   @default(PROVAVEL) // PROVAVEL, DUVIDA, SUSPENSO, LESIONADO, NULO
+  fotoUrl         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relacionamentos
+  clube        Clube          @relation(fields: [clubeId], references: [id])
+  scouts       Scout[]
+  pontuacoes   Pontuacao[]
+  previsoes    Previsao[]
+  timesTitular TimeJogador[]
+
+  @@map("jogadores")
+}
+
+enum Posicao {
+  GOLEIRO
+  ZAGUEIRO
+  LATERAL
+  MEIA
+  ATACANTE
+  TECNICO
+}
+
+enum Status {
+  PROVAVEL
+  DUVIDA
+  SUSPENSO
+  LESIONADO
+  NULO
+}
+
+// Rodadas do campeonato
+model Rodada {
+  id           String     @id @default(uuid())
+  numero       Int        @unique
+  inicio       DateTime
+  fim          DateTime
+  status       StatusRodada @default(AGUARDANDO) // AGUARDANDO, ABERTA, ENCERRADA, PROCESSADA
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  // Métricas do modelo após processamento
+  maeModelo    Float?     // Mean Absolute Error
+  rmseModelo   Float?     // Root Mean Square Error
+  ndcgModelo   Float?     // Normalized Discounted Cumulative Gain
+
+  // Relacionamentos
+  jogos        Jogo[]
+  pontuacoes   Pontuacao[]
+  previsoes    Previsao[]
+  timesSalvos  TimeSalvo[]
+
+  @@map("rodadas")
+}
+
+enum StatusRodada {
+  AGUARDANDO
+  ABERTA
+  ENCERRADA
+  PROCESSADA
+}
+
+// Jogos da rodada
+model Jogo {
+  id              String   @id @default(uuid())
+  rodadaId        String
+  clubeMandanteId String
+  clubeVisitanteId String
+  data            DateTime
+  local           String?
+  golsMandante    Int?
+  golsVisitante   Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Probabilidades calculadas
+  probMandanteVence Float?
+  probEmpate        Float?
+  probVisitanteVence Float?
+  probOver25        Float? // Probabilidade de over 2.5 gols
+
+  // Relacionamentos
+  rodada        Rodada @relation(fields: [rodadaId], references: [id])
+  mandante      Clube  @relation("Mandante", fields: [clubeMandanteId], references: [id])
+  visitante     Clube  @relation("Visitante", fields: [clubeVisitanteId], references: [id])
+  scouts        Scout[]
+
+  @@map("jogos")
+}
+
+// Scouts (estatísticas) dos jogadores por jogo
+model Scout {
+  id              String   @id @default(uuid())
+  jogadorId       String
+  jogoId          String?
+  rodadaId        String
+  clubeId         String
+
+  // Scouts ofensivos
+  gols            Int      @default(0)
+  assistencias    Int      @default(0)
+  finalizacoes    Int      @default(0) // Finalizações defendidas
+  finalizacoesFora Int     @default(0) // Finalizações para fora
+  finalizacoesTrave Int    @default(0) // Finalizações na trave
+  passesCertos    Int      @default(0)
+  passesErrados   Int      @default(0)
+  cruzamentos     Int      @default(0)
+  desarmes        Int      @default(0) // Desarmes (roubadas de bola)
+  bolasRecuperadas Int    @default(0)
+  dribles         Int      @default(0)
+  faltasSofridas  Int      @default(0)
+
+  // Scouts defensivos
+  defesas         Int      @default(0)
+  defesasDificeis Int      @default(0)
+  golsSofridos    Int      @default(0)
+  penaltisDefendidos Int   @default(0)
+  penaltisCometidos  Int   @default(0)
+  penaltisPerdidos   Int   @default(0)
+  faltasCometidas    Int   @default(0)
+  cartoesAmarelos    Int   @default(0)
+  cartoesVermelhos   Int   @default(0)
+  impedimentos       Int   @default(0)
+  golsContra         Int   @default(0)
+
+  // Scout especial
+  golSalvador        Int   @default(0) // Golo impedido na linha
+
+  // Calculado
+  pontos          Float    @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relacionamentos
+  jogador Jogador @relation(fields: [jogadorId], references: [id])
+  jogo    Jogo?   @relation(fields: [jogoId], references: [id])
+
+  @@unique([jogadorId, rodadaId])
+  @@map("scouts")
+}
+
+// Pontuação final dos jogadores por rodada
+model Pontuacao {
+  id          String   @id @default(uuid())
+  jogadorId   String
+  rodadaId    String
+  pontos      Float
+  preco       Float    // Preço na rodada
+  media       Float    // Móvel até a rodada
+  jogos       Int      // Jogos até a rodada
+  varricao    Float    // Variação de preço
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relacionamentos
+  jogador Jogador @relation(fields: [jogadorId], references: [id])
+  rodada  Rodada  @relation(fields: [rodadaId], references: [id])
+
+  @@unique([jogadorId, rodadaId])
+  @@map("pontuacoes")
+}
+
+// Previsões do modelo ML
+model Previsao {
+  id                  String   @id @default(uuid())
+  jogadorId           String
+  rodadaId            String
+  pontosEsperados     Float    // Predição principal
+  desvioPadrao        Float    // Incerteza (risco)
+  intervaloInferior   Float?   // Intervalo de confiança 95%
+  intervaloSuperior   Float?   // Intervalo de confiança 95%
+
+  // Features usadas (para explicabilidade)
+  media3Rodadas       Float?
+  media5Rodadas       Float?
+  mediaGeral          Float?
+  ehMandante          Boolean?
+  forcaAdversario     Float?   // Elo do adversário
+  probSofrerGol       Float?   // Probabilidade do time sofrer gol
+  probFazerGol        Float?   // Probabilidade do time fazer gol
+  preco               Float?
+  variacaoPreco       Float?
+  status              Status?
+
+  // Metadata
+  modeloVersao        String   @default("1.0.0")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relacionamentos
+  jogador Jogador @relation(fields: [jogadorId], references: [id])
+  rodada  Rodada  @relation(fields: [rodadaId], references: [id])
+
+  @@unique([jogadorId, rodadaId])
+  @@map("previsoes")
+}
+
+// Times recomendados/salvos pelos usuários
+model TimeSalvo {
+  id            String        @id @default(uuid())
+  userId        String
+  rodadaId      String
+  nome          String        @default("Meu Time")
+  esquema       String        // 4-3-3, 4-4-2, etc.
+  orcamento     Float
+  custoTotal    Float
+  pontosPrevistos Float
+  pontosReais   Float?
+  estrategia    Estrategia    @default(EQUILIBRADO) // SEGURO, EQUILIBRADO, OUSADO
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  // Relacionamentos
+  user     User          @relation(fields: [userId], references: [id])
+  rodada   Rodada        @relation(fields: [rodadaId], references: [id])
+  jogadores TimeJogador[]
+
+  @@map("times_salvos")
+}
+
+enum Estrategia {
+  SEGURO
+  EQUILIBRADO
+  OUSADO
+}
+
+// Jogadores em cada time salvo
+model TimeJogador {
+  id          String    @id @default(uuid())
+  timeId      String
+  jogadorId   String
+  posicaoTime PosicaoTime // TITULAR, BANCO, CAPITAO
+  ordem       Int       // Ordem no banco
+  precoNaHora Float
+  pontosPrevistos Float
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relacionamentos
+  time    TimeSalvo @relation(fields: [timeId], references: [id], onDelete: Cascade)
+  jogador Jogador   @relation(fields: [jogadorId], references: [id])
+
+  @@unique([timeId, jogadorId])
+  @@map("time_jogadores")
+}
+
+enum PosicaoTime {
+  TITULAR
+  BANCO
+  CAPITAO
+}
+
+// Histórico de acesso dos usuários
+model HistoricoAcesso {
+  id        String   @id @default(uuid())
+  userId    String
+  acao      String   // LOGIN, GERAR_TIME, VER_PREVISAO, etc.
+  metadata  Json?    // Dados adicionais
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("historico_acesso")
+}
+
+// Jobs em fila (para auditoria)
+model JobLog {
+  id        String   @id @default(uuid())
+  jobType   String   // IMPORTAR_DADOS, TREINAR_MODELO, GERAR_PREVISOES
+  status    String   // PENDENTE, PROCESSANDO, COMPLETADO, ERRO
+  payload   Json?    // Dados de entrada
+  resultado Json?    // Dados de saída
+  error     String?
+  startedAt DateTime?
+  endedAt   DateTime?
+  createdAt DateTime @default(now())
+
+  @@map("job_logs")
+}
+
+// Configurações do sistema
+model Configuracao {
+  id        String   @id @default(uuid())
+  chave     String   @unique
+  valor     String
+  descricao String?
+  updatedAt DateTime @updatedAt
+
+  @@map("configuracoes")
+}

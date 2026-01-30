@@ -1,0 +1,73 @@
+# Render Blueprint para MitaBot Cartola
+# Deploy automático de todos os serviços
+
+services:
+  # Frontend Next.js
+  - type: web
+    name: mitabot-frontend
+    runtime: node
+    buildCommand: cd frontend && npm install && npx prisma generate && npm run build
+    startCommand: cd frontend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mitabot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mitabot-redis
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ML_SERVICE_URL
+        value: http://mitabot-ml-service:8000
+
+  # ML Service Python
+  - type: web
+    name: mitabot-ml-service
+    runtime: python
+    buildCommand: cd ml-service && pip install -r requirements.txt
+    startCommand: cd ml-service && uvicorn src.main:app --host 0.0.0.0 --port 8000
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mitabot-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mitabot-redis
+          property: connectionString
+      - key: MODEL_PATH
+        value: /tmp/models
+
+  # Workers Node.js
+  - type: worker
+    name: mitabot-workers
+    runtime: node
+    buildCommand: cd workers && npm install
+    startCommand: cd workers && npm run start:workers
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: mitabot-redis
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://mitabot-frontend.onrender.com
+      - key: ML_SERVICE_URL
+        value: http://mitabot-ml-service:8000
+
+databases:
+  - name: mitabot-db
+    databaseName: mitabot
+    user: mitabot
+    plan: free
+
+redis:
+  - name: mitabot-redis
+    plan: free
+    ipAllowList: []
